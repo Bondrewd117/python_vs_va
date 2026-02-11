@@ -1,0 +1,12 @@
+*MADE BY JORGE ALEJANDRO JUAREZ LORA IPN
+
+.subckt rram_v1 TE BE
+N1 TE BE rram_v1_model 
+.ends rram_v1
+
+.model rram_v1_model rram_v1_va
+
+
+.control
+pre_osdi /foss/designs/Capibara_tuto/MEMS/rram_v1.osdi
+.endc

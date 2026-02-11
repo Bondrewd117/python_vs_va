@@ -1,0 +1,113 @@
+`include "constants.vams"
+`include "disciplines.vams"
+
+module rram_v1_va(p, n, x_out, G_out, Vm_out, Is_out, Im_out);
+    inout p, n;
+    output x_out, G_out, Vm_out, Is_out, Im_out;
+    
+    electrical p, n;
+    electrical x_out, G_out, Vm_out, Is_out, Im_out;  // Auxiliary output nodes
+
+    // Physical constants
+    parameter real q = 1.6e-19 from (0:inf);           // Elementary charge
+    parameter real k = 1.3e-23 from (0:inf);           // Boltzmann constant
+
+    // GMMS model constants (Schottky diode)
+    parameter real Af = 1e-7 from (0:inf);
+    parameter real Ar = 1e-7 from (0:inf);
+    parameter real Bf = 8 from (0:inf);
+    parameter real Br = 8 from (0:inf);
+    parameter real phi = 0.88 from (0:1);
+
+    // Memristor parameters
+    parameter real Ron = 13e3 from (0:inf);            // ON resistance
+    parameter real Roff = 460e3 from (0:inf);          // OFF resistance
+    parameter real tau = 6e-5 from (0:inf);            // Time constant
+    
+    // Temperature (with offset as in Python code)
+    parameter real T = 108.5 from (0:inf);             // T = 298.5 - 190
+    
+    // Threshold voltages (for non-stochastic version)
+    parameter real Von_threshold = 0.2 from (-inf:inf);
+    parameter real Voff = -0.1 from (-inf:inf);
+    
+    // Initial state parameter
+    parameter real x0 = 0.0 from [0:1];
+    
+    // Conductance floor to avoid numerical issues
+    parameter real GMIN = 1e-12 from (0:inf);
+
+    // Internal variables
+    real epsilon;           // Thermal voltage factor
+    real Vm;               // Voltage across memristor
+    real x;                // State variable (0 to 1)
+    real dxdt;             // Derivative of state variable
+    real Von;              // Variable ON threshold (Ostrovskii model)
+    real sqrtX;            // Square root of x
+    real Gm;               // Memristor conductance
+    real Im;               // Memristor ohmic current
+    real Is;               // Schottky diode current
+    real Itotal;           // Total current
+    real Poff_on, Pon_off; // Switching probabilities
+
+    analog begin
+        // Calculate epsilon (thermal factor)
+        epsilon = q / (k * T);
+        
+        // Voltage across memristor
+        Vm = V(p, n);
+        
+        // Calculate variable Von threshold (Ostrovskii snapback model)
+        sqrtX = sqrt(max(x, 0));
+        
+        // Protect against division by zero when x approaches 1.7
+        if (x < 1.7) begin
+            Von = Von_threshold + 
+                  (0.1 * cos(4.0 * `M_PI * sqrtX / (1.7 - x))) / (1.0 + 10.0 * sqrtX);
+        end else begin
+            Von = Von_threshold;
+        end
+        
+        // Calculate switching probabilities (MMS model)
+        Poff_on = 1.0 / (1.0 + exp(-epsilon * (Vm - Von)));
+        Pon_off = 1.0 / (1.0 + exp(-epsilon * (Vm - Voff)));
+        
+        // State variable differential equation
+        dxdt = (1.0 / tau) * (Poff_on * (1.0 - x) - (1.0 - Pon_off) * x);
+        
+        // Integrate state variable with initial condition x0
+        x = idt(dxdt, x0);
+        
+        // Clamp x between 0 and 1 for numerical safety
+        x = max(0.0, min(1.0, x));
+
+        // Memristor conductance (parallel combination)
+        Gm = (x / Ron) + ((1.0 - x) / Roff) + GMIN;
+        
+        // Ohmic current through memristor
+        Im = Gm * Vm;
+        
+        // Schottky diode current (GMMS model)
+        Is = Af * exp(Bf * Vm) - Ar * exp(-Br * Vm);
+        
+        // Total current (weighted combination)
+        Itotal = phi * Im + (1.0 - phi) * Is;
+        
+        // Adjust conductance to include Schottky effect
+        if (abs(Vm) > 1e-9) begin
+            Gm = Gm + (Is / Vm);
+        end
+        
+        // Current contribution
+        I(p, n) <+ Itotal;
+        
+        // Export internal variables as voltage sources (for monitoring)
+        // These appear as voltages but represent the actual values
+        V(x_out) <+ x;           // State variable (0 to 1)
+        V(G_out) <+ Gm * 1e6;    // Conductance in μS (for better scaling)
+        V(Vm_out) <+ Vm;         // Voltage across memristor
+        V(Is_out) <+ Is * 1e6;   // Schottky current in μA (for better scaling)
+        V(Im_out) <+ Im * 1e6;   // Ohmic current in μA (for better scaling)
+    end
+
+endmodule
