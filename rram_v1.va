@@ -1,113 +1,139 @@
+//******************************************************************
+// GMMS-Os Memristor Model in Verilog-A (Simplified)
+// Generalized Mean Metastable Switch model with Ostrovskii snapback
+// 
+// Solo 2 terminales (p, n) - sin puertos de debug
+//******************************************************************
+
 `include "constants.vams"
 `include "disciplines.vams"
 
 module rram_v1_va(p, n);
     inout p, n;
     electrical p, n;
+    electrical nX;    // Nodo interno para integración
 
-    // Physical constants
-    parameter real q = 1.6e-19 from (0:inf);           // Elementary charge
-    parameter real k = 1.3e-23 from (0:inf);           // Boltzmann constant
-
-    // GMMS model constants (Schottky diode)
+    //==================================================================
+    // Parameters
+    //==================================================================
+    parameter real Ron = 13000.0 from (0:inf);
+    parameter real Roff = 460000.0 from (0:inf);
+    parameter real tau = 60e-6 from (0:inf);
+    parameter real T = 108.5 from (0:inf);
+    parameter real Von_th = 0.2 from (0:inf);
+    parameter real Voff = -0.1 from (-inf:0];
     parameter real Af = 1e-7 from (0:inf);
     parameter real Ar = 1e-7 from (0:inf);
-    parameter real Bf = 8 from (0:inf);
-    parameter real Br = 8 from (0:inf);
-    parameter real phi = 0.88 from (0:1);
-
-    // Memristor parameters
-    parameter real Ron = 13e3 from (0:inf);            // ON resistance
-    parameter real Roff = 460e3 from (0:inf);          // OFF resistance
-    parameter real tau = 6e-5 from (0:inf);            // Time constant
-    
-    // Temperature (with offset as in Python code)
-    parameter real T = 108.5 from (0:inf);             // T = 298.5 - 190
-    
-    // Threshold voltages (for non-stochastic version)
-    parameter real Von_threshold = 0.2 from (-inf:inf);
-    parameter real Voff = -0.1 from (-inf:inf);
-    
-    // Initial state parameter - CAN BE SET FROM SPICE NETLIST
-    // x0 = 0.0 → memristor starts in OFF state (high resistance, Reseted=True in Python)
-    // x0 = 1.0 → memristor starts in ON state (low resistance, Reseted=False in Python)
-    // x0 = 0.5 → memristor starts in intermediate state
-    //
-    // USAGE IN SPICE:
-    //   Method 1 (instance parameter):  N1 TE BE rram_v1_model x0=0.5
-    //   Method 2 (model parameter):     .model mymodel rram_v1_va x0=0.5
-    parameter real x0 = 0.0 from [0:1];
-    
-    // Conductance floor to avoid numerical issues
+    parameter real Bf = 8.0 from (0:inf);
+    parameter real Br = 8.0 from (0:inf);
+    parameter real phi = 0.88 from [0:1];
+    parameter real Xinit = 0.0 from [0:1];
+    parameter real maxslope = 1e15 from (0:inf);
+    parameter real smoothing = 1e-8 from (0:inf);
+    parameter real Kclip = 50.0 from (0:inf);
     parameter real GMIN = 1e-12 from (0:inf);
 
-    // Internal variables
-    real epsilon;           // Thermal voltage factor
-    real Vm;               // Voltage across memristor
-    real x;                // State variable (0 to 1)
-    real dxdt;             // Derivative of state variable
-    real Von;              // Variable ON threshold (Ostrovskii model)
-    real sqrtX;            // Square root of x
-    real Gm;               // Memristor conductance
-    real Im;               // Memristor ohmic current
-    real Is;               // Schottky diode current
-    real Itotal;           // Total current
-    real Poff_on, Pon_off; // Switching probabilities
+    //==================================================================
+    // Constants
+    //==================================================================
+    localparam real QE = 1.6e-19;
+    localparam real KB = 1.38e-23;
+    
+    //==================================================================
+    // Variables
+    //==================================================================
+    real X, Vm, G, Im, Is, Itotal, Von;
+    real sqrtX, epsilon;
+    real sig_on, sig_off, dXdt;
+    real Fw1, Fw2, clip_min, clip_max;
+    real cos_arg, cos_denom;
 
+    //==================================================================
+    // Functions
+    //==================================================================
+    
+    analog function real smoothstep;
+        input x, sm;
+        real x, sm;
+        begin
+            smoothstep = 0.5 * (x / sqrt(x*x + sm) + 1.0);
+        end
+    endfunction
+    
+    analog function real safeexp;
+        input x, maxsl;
+        real x, maxsl, bp;
+        begin
+            bp = ln(maxsl);
+            if (x <= bp)
+                safeexp = exp(x);
+            else
+                safeexp = maxsl + maxsl * (x - bp);
+        end
+    endfunction
+
+    analog function real safesigmoid;
+        input x;
+        real x;
+        begin
+            if (x > 35.0)
+                safesigmoid = 1.0;
+            else if (x < -35.0)
+                safesigmoid = 0.0;
+            else
+                safesigmoid = 1.0 / (1.0 + exp(-x));
+        end
+    endfunction
+
+    //==================================================================
+    // Main Block
+    //==================================================================
     analog begin
-        // Calculate epsilon (thermal factor)
-        epsilon = q / (k * T);
         
-        // Voltage across memristor
+        // Estado y voltaje
+        X = V(nX, n);
         Vm = V(p, n);
+        epsilon = QE / (KB * T);
         
-        // Calculate variable Von threshold (Ostrovskii snapback model)
-        // Von = Von_threshold + 0.1*cos(4*pi*sqrt(x)/(1.7-x)) / (1 + 10*sqrt(x))
-        sqrtX = sqrt(max(x, 0));  // Ensure non-negative
+        // Ostrovskii snapback para Von
+        if (X < 1e-9)
+            sqrtX = 1e-4;
+        else
+            sqrtX = sqrt(X);
         
-        // Protect against division by zero when x approaches 1.7
-        if (x < 1.7) begin
-            Von = Von_threshold + 
-                  (0.1 * cos(4.0 * `M_PI * sqrtX / (1.7 - x))) / (1.0 + 10.0 * sqrtX);
+        cos_denom = 1.7 - X;
+        
+        if (cos_denom > 0.01) begin
+            cos_arg = 4.0 * `M_PI * sqrtX / cos_denom;
+            Von = Von_th + (0.1 * cos(cos_arg)) / (1.0 + 10.0 * sqrtX);
         end else begin
-            Von = Von_threshold;
+            Von = Von_th;
         end
         
-        // Calculate switching probabilities (MMS model)
-        Poff_on = 1.0 / (1.0 + exp(-epsilon * (Vm - Von)));
-        Pon_off = 1.0 / (1.0 + exp(-epsilon * (Vm - Voff)));
+        // GMMS state equation
+        sig_on = safesigmoid(epsilon * (Vm - Von));
+        sig_off = safesigmoid(epsilon * (Vm - Voff));
+        dXdt = (1.0/tau) * ((1.0 - X) * sig_on - X * (1.0 - sig_off));
         
-        // State variable differential equation
-        // dx/dt = (1/tau) * [ Poff_on*(1-x) - (1-Pon_off)*x ]
-        dxdt = (1.0 / tau) * (Poff_on * (1.0 - x) - (1.0 - Pon_off) * x);
+        // Soft clipping
+        Fw1 = smoothstep(-X, smoothing);
+        Fw2 = smoothstep(X - 1.0, smoothing);
+        clip_min = (safeexp(Kclip * (-X), maxslope) - dXdt) * Fw1;
+        clip_max = (-safeexp(Kclip * (X - 1.0), maxslope) - dXdt) * Fw2;
         
-        // Integrate state variable with initial condition x0
-        // The value of x0 can be overridden from SPICE netlist
-        x = idt(dxdt, x0);
-        
-        // Clamp x between 0 and 1 for numerical safety
-        x = max(0.0, min(1.0, x));
-
-        // Memristor conductance (parallel combination)
-        // G = x/Ron + (1-x)/Roff
-        Gm = (x / Ron) + ((1.0 - x) / Roff) + GMIN;
-        
-        // Ohmic current through memristor
-        Im = Gm * Vm;
-        
-        // Schottky diode current (GMMS model)
-        Is = Af * exp(Bf * Vm) - Ar * exp(-Br * Vm);
-        
-        // Total current (weighted combination)
+        // Conductancia y corrientes
+        G = X / Ron + (1.0 - X) / Roff;
+        Im = Vm * G;
+        Is = Af * safeexp(Bf * Vm, maxslope) - Ar * safeexp(Br * Vm, maxslope);
         Itotal = phi * Im + (1.0 - phi) * Is;
         
-        // Adjust conductance to include Schottky effect
-        if (abs(Vm) > 1e-9) begin
-            Gm = Gm + (Is / Vm);
-        end
+        // Output
+        I(p, n) <+ Itotal + GMIN * Vm;
         
-        // Current contribution
-        I(p, n) <+ Itotal;
+        // Integración
+        I(nX, n) <+ dXdt + clip_min + clip_max;
+        I(nX, n) <+ ddt(-1.0 * X);
+        
     end
 
 endmodule

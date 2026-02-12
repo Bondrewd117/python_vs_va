@@ -5,20 +5,20 @@ V {}
 S {}
 E {}
 B 2 670 -1230 1470 -830 {flags=graph
-y1=-4.4e-07
-y2=0
+y1=-3.9e-06
+y2=2.8e-05
 ypos1=0
 ypos2=2
 divy=5
 subdivy=4
 unity=1
-x1=0
-x2=0.2
+x1=-0.4
+x2=0.4
 divx=5
 subdivx=1
 xlabmag=1.0
 ylabmag=1.0
-node="\\"Hysteresis Im vs Vm; i(v2) -\\""
+node="\\"Hysteresis Im vs Vm; 0 i(v2) -\\""
 color=4
 dataset=-1
 unitx=1
@@ -28,15 +28,15 @@ linewidth_mult=3
 digital=0
 sweep=TE}
 B 2 -140 -810 660 -410 {flags=graph
-y1=-1.1e-06
-y2=1.1e-06
+y1=-3.9e-06
+y2=2.8e-05
 ypos1=0
 ypos2=2
 divy=5
 subdivy=4
 unity=1
 x1=0
-x2=0.2
+x2=0.5
 divx=5
 subdivx=1
 xlabmag=1.0
@@ -46,18 +46,18 @@ unitx=1
 logx=0
 logy=0
 sweep=time
-color="7 4"
-node="\\"Corriente; i(v2) -\\""}
+color=7
+node="\\"Corriente;0 i(v2) -\\""}
 B 2 -150 -1230 650 -830 {flags=graph
-y1=-0.5
-y2=0.5
+y1=-0.3
+y2=0.7
 ypos1=0
 ypos2=2
 divy=5
 subdivy=4
 unity=1
 x1=0
-x2=0.2
+x2=0.5
 divx=5
 subdivx=1
 xlabmag=1.0
@@ -79,7 +79,7 @@ divy=5
 subdivy=1
 unity=1
 x1=0
-x2=0.2
+x2=0.5
 divx=5
 subdivx=1
 dataset=-1
@@ -114,7 +114,7 @@ C {devices/code_shown.sym} -50 -350 0 0 {name=NGSPICE
 only_toplevel=true
 value="
 .options num_threads=8 reltol=1e-4 abstol=1e-12
-.tran 100u 200m
+.tran 10u 500m
 .control
 	save all
 	run
@@ -141,9 +141,9 @@ pre_osdi /foss/designs/Capibara_tuto/MEMS/rram_v1.osdi
 .endc
 "
 spice_ignore=false}
-C {devices/vsource.sym} 130 -80 0 1 {name=V2 value="SINE(0 0.4 10)"
+C {devices/vsource.sym} 130 -80 0 1 {name=V2 value="SINE(0 0.7 10)"
 spice_ignore=false}
-C {/foss/designs/Capibara_tuto/MEMS/rram_v1.sym} 350 -100 0 0 {name=R1
+C {rram_v1.sym} 350 -100 0 0 {name=R1
 model=rram_v1
 spiceprefix=X
 }

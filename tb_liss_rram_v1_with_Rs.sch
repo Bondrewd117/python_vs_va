@@ -50,8 +50,8 @@ color="7 4"
 node="\\"Current Im; i(v2) -\\"
 \\"Voltage Vm; v(Vm) 0.001 *\\""}
 B 2 -150 -1230 650 -830 {flags=graph
-y1=-0.7
-y2=0.7
+y1=-6.2416667
+y2=-4.8416667
 ypos1=0
 ypos2=2
 divy=5
@@ -115,93 +115,10 @@ set rawfile [file tail [file rootname [xschem get schname]]]
 xschem raw_read $netlist_dir/$\{rawfile\}.raw
 unset rawfile
 "}
-C {devices/code_shown.sym} -170 140 0 0 {C \{devices/code_shown.sym\} -50 -350 0 0 \{name=NGSPICE
-only_toplevel=true
-value="
-*================================================================
-* Simulation control - matches Python timing
-* Python: dt=2us, total_time=180ms, samples=90000
-*================================================================
-.options num_threads=8
-.options method=gear
-.options maxstep=2u
-.options reltol=1e-4
-.options abstol=1e-12
-
-* Transient analysis: 
-* - Initial step: 2us (matches Python dt = Tao/SamplesByTao = 60us/30)
-* - Duration: 200ms (slightly more than Python's 180ms for 2 cycles)
-.tran 2u 200m
-
-.control
-	save all
-	run
-	write tb_liss_rram_v1.raw
-.endc
-" \}}
 C {devices/lab_wire.sym} 180 -170 0 0 {name=l3 sig_type=std_logic lab=V_input}
-C {devices/code_shown.sym} 822.5 -322.5 0 0 {name=MODELS2
-only_toplevel=true
-format="tcleval( @value )"
-C \{devices/code_shown.sym\} 822.5 -322.5 0 0 \{name=MODELS2
-only_toplevel=true
-format="tcleval( @value )"
-value="
-*================================================================
-* RRAM v1 Model - Matches Python simulation parameters
-*================================================================
-* Based on stochastic_GMMS_memristor_demo.py
-* Programmer: G. Laguna-Sanchez
-*================================================================
-
-.control
-pre_osdi /foss/designs/Capibara_tuto/MEMS/rram_v1.osdi
-.endc
-
-*----------------------------------------------------------------
-* Integration method and timestep control
-* Matches Python: Tao=60us, SamplesByTao=30, dt=2us
-*----------------------------------------------------------------
-.options method=gear
-.options maxstep=2u
-.options reltol=1e-4
-.options abstol=1e-12
-
-*----------------------------------------------------------------
-* Subcircuit definition
-*----------------------------------------------------------------
-.subckt rram_v1 TE BE
-N1 TE BE rram_v1_model
-.ends rram_v1
-
-*----------------------------------------------------------------
-* Model with exact Python parameters
-*----------------------------------------------------------------
-.model rram_v1_model rram_v1_va 
-+ x0=0.0
-+ Ron=13e3
-+ Roff=460e3
-+ tau=6e-5
-+ T=108.5
-+ Von_threshold=0.2
-+ Voff=-0.1
-+ phi=0.88
-+ Af=1e-7
-+ Ar=1e-7
-+ Bf=8
-+ Br=8
-
-*----------------------------------------------------------------
-* Additional models with different initial states
-*----------------------------------------------------------------
-.model rram_off rram_v1_va x0=0.0 Ron=13e3 Roff=460e3 tau=6e-5 T=108.5
-.model rram_on rram_v1_va x0=1.0 Ron=13e3 Roff=460e3 tau=6e-5 T=108.5
-.model rram_half rram_v1_va x0=0.5 Ron=13e3 Roff=460e3 tau=6e-5 T=108.5
-"
-spice_ignore=false\}}
 C {devices/vsource.sym} 130 -80 0 1 {name=V2 value="SINE(0 0.7 10)"
 spice_ignore=false}
-C {/foss/designs/Capibara_tuto/MEMS/rram_v1.sym} 490 0 0 0 {name=R1
+C {rram_v1.sym} 490 0 0 0 {name=R1
 model=rram_v1
 spiceprefix=X
 }
@@ -211,3 +128,33 @@ footprint=1206
 device=resistor
 m=1}
 C {devices/lab_wire.sym} 300 -50 0 0 {name=l4 sig_type=std_logic lab=TE}
+C {devices/code_shown.sym} -100 180 0 0 {name=NGSPICE
+only_toplevel=true
+value="
+.options num_threads=8 reltol=1e-4 abstol=1e-12
+.tran 100u 200m
+.control
+	save all
+	run
+	write tb_liss_rram_v1.raw
+.endc
+
+" }
+C {devices/code_shown.sym} 752.5 -332.5 0 0 {name=MODELS2
+only_toplevel=true
+format="tcleval( @value )"
+value="
+*MADE BY JORGE ALEJANDRO JUAREZ LORA IPN
+
+.subckt rram_v1 TE BE
+N1 TE BE rram_v1_model
+.ends rram_v1
+
+.model rram_v1_model rram_v1_va
+
+
+.control
+pre_osdi /foss/designs/Capibara_tuto/MEMS/rram_v1.osdi
+.endc
+"
+spice_ignore=false}
